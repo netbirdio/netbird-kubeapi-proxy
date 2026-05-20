@@ -1,0 +1,61 @@
+version: "2"
+linters:
+  default: none
+  enable:
+    - copyloopvar
+    - dupl
+    - errcheck
+    - ginkgolinter
+    - gocyclo
+    - govet
+    - ineffassign
+    - misspell
+    - nakedret
+    - prealloc
+    - revive
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+    - importas
+    - goheader
+  settings:
+    revive:
+      rules:
+        - name: comment-spacings
+    staticcheck:
+      checks: ["all", "-ST1000", "-ST1003", "-ST1016", "-ST1020", "-ST1021", "-ST1022", "-QF1008", "-SA1019"]
+    importas:
+      alias:
+        - pkg: github.com/netbirdio/netbird/shared/management/client/rest
+          alias: netbird
+      no-extra-aliases: true
+    goheader:
+      template: |-
+        SPDX-License-Identifier: BSD-3-Clause
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - dupl
+        path: internal/*
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gci
+    - gofmt
+  settings:
+    gci:
+      sections:
+        - blank
+        - standard
+        - prefix(golang.org/x)
+        - default
+        - prefix(github.com/netbirdio)
+        - localmodule
+      no-inline-comments: true
+      no-prefix-comments: true
+      custom-order: true

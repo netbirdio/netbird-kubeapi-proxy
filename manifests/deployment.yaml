@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netbird-kubeapi-proxy
+  labels:
+    app.kubernetes.io/name: netbird-kubeapi-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: netbird-kubeapi-proxy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: netbird-kubeapi-proxy
+    spec:
+      serviceAccountName: netbird-kubeapi-proxy
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: proxy
+          image: ghcr.io/netbirdio/netbird-kubeapi-proxy:dev
+          args:
+            - --api-key=$(API_KEY)
+            - --setup-key=$(SETUP_KEY)
+            - --instance-name=$(POD_NAME)
+            - --cluster-name=kubernetes
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: SETUP_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: netbird-kubeapi-proxy
+                  key: setup-key
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: netbird-kubeapi-proxy
+                  key: api-key
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
