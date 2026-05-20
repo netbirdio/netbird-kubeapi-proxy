@@ -1,0 +1,1 @@
+# NetBird Kubernetes API Proxy
