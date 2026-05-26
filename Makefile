@@ -7,6 +7,10 @@ IMG_REF := $(IMG_REGISTRY)/$(IMG_REPOSITORY):$(IMG_TAG)
 lint:
 	@golangci-lint run ./...
 
+.PHONY: test
+test-unit:
+	@go test ./... -race
+
 .PHONY: build
 build: bin/linux-$(shell go env GOARCH)/netbird-kubeapi-proxy
 
