@@ -10,7 +10,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"os/signal"
 	"syscall"
 
@@ -32,8 +31,8 @@ func main() {
 		clusterName   string
 	)
 	flag.StringVar(&mgmtURL, "management-url", "https://api.netbird.io", "NetBird management URL")
-	flag.StringVar(&apiKey, "api-key", os.Getenv("NB_API_KEY"), "NetBird API key")
-	flag.StringVar(&setupKey, "setup-key", os.Getenv("NB_SETUP_KEY"), "NetBird setup key")
+	flag.StringVar(&apiKey, "api-key", "", "NetBird API key")
+	flag.StringVar(&setupKey, "setup-key", "", "NetBird setup key")
 	flag.StringVar(&kubeAPIServer, "kubernetes-api-server", "https://kubernetes.default.svc.cluster.local", "Target Kubernetes API server URL")
 	flag.StringVar(&instanceName, "instance-name", "", "Name of the instance")
 	flag.StringVar(&clusterName, "cluster-name", "", "Name of the cluster")
@@ -83,7 +82,7 @@ func run(ctx context.Context, kubeAPIServer, mgmtURL, apiKey, setupKey, instance
 		return embedClient.Stop(context.Background())
 	})
 
-	proxySrv, err := proxy.Server(embedClient, netbirdClient, kubeAPIServerURL)
+	proxySrv, err := proxy.Server(embedClient, netbirdClient.Peers, kubeAPIServerURL)
 	if err != nil {
 		return err
 	}

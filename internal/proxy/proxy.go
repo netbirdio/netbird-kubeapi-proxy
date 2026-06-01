@@ -10,6 +10,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
 	"fmt"
 	"math/big"
 	"net"
@@ -21,25 +22,21 @@ import (
 
 	"github.com/netbirdio/netbird/client/embed"
 	netbird "github.com/netbirdio/netbird/shared/management/client/rest"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
-func Server(embedClient *embed.Client, netbirdClient *netbird.Client, kubeAPIServerURL *url.URL) (*http.Server, error) {
-	saToken, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/token")
-	if err != nil {
-		return nil, err
-	}
-	bearerToken := string(saToken)
+type PeerLister interface {
+	List(ctx context.Context, opts ...netbird.PeersListOption) ([]api.Peer, error)
+}
 
-	certPool, err := x509.SystemCertPool()
+func Server(embedClient *embed.Client, peerLister PeerLister, kubeAPIServerURL *url.URL) (*http.Server, error) {
+	bearerToken, err := getBearerToken()
 	if err != nil {
 		return nil, err
 	}
-	k8sCA, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+	certPool, err := getCertPool()
 	if err != nil {
 		return nil, err
-	}
-	if ok := certPool.AppendCertsFromPEM(k8sCA); !ok {
-		return nil, fmt.Errorf("failed to append Kubernetes CA certificate")
 	}
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
@@ -48,44 +45,8 @@ func Server(embedClient *embed.Client, netbirdClient *netbird.Client, kubeAPISer
 	}
 	proxy := &httputil.ReverseProxy{
 		Transport: transport,
-		Rewrite: func(pr *httputil.ProxyRequest) {
-			allowedHeaders := map[string]any{
-				"Accept":          nil,
-				"Accept-Encoding": nil,
-				"Content-Length":  nil,
-				"Content-Type":    nil,
-				"User-Agent":      nil,
-			}
-			for k := range pr.Out.Header {
-				if _, ok := allowedHeaders[k]; !ok {
-					pr.Out.Header.Del(k)
-				}
-			}
-
-			remoteIP, _, err := net.SplitHostPort(pr.In.RemoteAddr)
-			if err != nil {
-				return
-			}
-			listCtx, listCancel := context.WithTimeout(pr.In.Context(), 10*time.Second)
-			defer listCancel()
-			peers, err := netbirdClient.Peers.List(listCtx, netbird.PeerIPFilter(remoteIP))
-			if err != nil {
-				return
-			}
-			if len(peers) != 1 {
-				return
-			}
-			peer := peers[0]
-			pr.Out.Header.Set("Impersonate-User", peer.UserId)
-			for _, group := range peer.Groups {
-				pr.Out.Header.Add("Impersonate-Group", group.Name)
-			}
-
-			pr.Out.Header.Set("Authorization", "Bearer "+bearerToken)
-			pr.SetURL(kubeAPIServerURL)
-		},
+		Rewrite:   rewriteHandler(peerLister, kubeAPIServerURL, bearerToken),
 	}
-
 	stat, err := embedClient.Status()
 	if err != nil {
 		return nil, err
@@ -104,6 +65,71 @@ func Server(embedClient *embed.Client, netbirdClient *netbird.Client, kubeAPISer
 		IdleTimeout:       60 * time.Second,
 	}
 	return &srv, nil
+}
+
+func rewriteHandler(peerLister PeerLister, kubeAPIServerURL *url.URL, bearerToken string) func(*httputil.ProxyRequest) {
+	return func(pr *httputil.ProxyRequest) {
+		allowedHeaders := map[string]any{
+			"Accept":          nil,
+			"Accept-Encoding": nil,
+			"Content-Length":  nil,
+			"Content-Type":    nil,
+			"User-Agent":      nil,
+		}
+		for k := range pr.Out.Header {
+			if _, ok := allowedHeaders[k]; !ok {
+				pr.Out.Header.Del(k)
+			}
+		}
+
+		remoteIP, _, err := net.SplitHostPort(pr.In.RemoteAddr)
+		if err != nil {
+			return
+		}
+		listCtx, listCancel := context.WithTimeout(pr.In.Context(), 10*time.Second)
+		defer listCancel()
+		peers, err := peerLister.List(listCtx, netbird.PeerIPFilter(remoteIP))
+		if err != nil {
+			return
+		}
+		if len(peers) != 1 {
+			return
+		}
+		peer := peers[0]
+		pr.Out.Header.Set("Impersonate-User", peer.UserId)
+		for _, group := range peer.Groups {
+			pr.Out.Header.Add("Impersonate-Group", group.Name)
+		}
+
+		pr.Out.Header.Set("Authorization", "Bearer "+bearerToken)
+		pr.SetURL(kubeAPIServerURL)
+	}
+}
+
+func getBearerToken() (string, error) {
+	b, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/token")
+	if err != nil {
+		return "", err
+	}
+	if len(b) == 0 {
+		return "", errors.New("token cannot be empty")
+	}
+	return string(b), nil
+}
+
+func getCertPool() (*x509.CertPool, error) {
+	certPool, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, err
+	}
+	k8sCA, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+	if err != nil {
+		return nil, err
+	}
+	if ok := certPool.AppendCertsFromPEM(k8sCA); !ok {
+		return nil, fmt.Errorf("failed to append Kubernetes CA certificate")
+	}
+	return certPool, nil
 }
 
 func generateSelfSignedCert(fqdn string) (tls.Certificate, error) {
