@@ -9,7 +9,7 @@ lint:
 
 .PHONY: test
 test-unit:
-	@go test ./... -race
+	@go test ./... -race -coverprofile=coverage.txt
 
 .PHONY: build
 build: bin/linux-$(shell go env GOARCH)/netbird-kubeapi-proxy

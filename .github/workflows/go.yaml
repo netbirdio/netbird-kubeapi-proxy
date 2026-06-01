@@ -30,4 +30,10 @@ jobs:
           go mod tidy
           git diff --exit-code
       - name: Run unit tests
-        run: make -B test-unit
+        run: make test-unit
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 #v6.0.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          flags: unit
+
