@@ -34,6 +34,13 @@ const (
 	AuthorizationHeader    = "Authorization"
 	ImpersonateUserHeader  = "Impersonate-User"
 	ImpersonateGroupHeader = "Impersonate-Group"
+
+	ConnectionHeader             = "Connection"
+	UpgradeHeader                = "Upgrade"
+	SecWebsocketKeyHeader        = "Sec-Websocket-Key"
+	SecWebsocketVersionHeader    = "Sec-Websocket-Version"
+	SecWebsocketProtocolHeader   = "Sec-Websocket-Protocol"
+	SecWebsocketExtensionsHeader = "Sec-Websocket-Extensions"
 )
 
 type PeerLister interface {
@@ -81,11 +88,35 @@ func proxyHandler(peerLister PeerLister, kubeAPIServerURL *url.URL, certPool *x5
 			ContentLengthHeader:  nil,
 			ContentTypeHeader:    nil,
 			UserAgentHeader:      nil,
+			// WebSocket negotiation headers for streaming subresources
+			// (kubectl exec/attach/port-forward/cp). These are not
+			// hop-by-hop, so httputil.ReverseProxy does not restore them;
+			// they must survive the allowlist for the upstream API server to
+			// complete the WebSocket handshake.
+			SecWebsocketKeyHeader:        nil,
+			SecWebsocketVersionHeader:    nil,
+			SecWebsocketProtocolHeader:   nil,
+			SecWebsocketExtensionsHeader: nil,
 		}
 		for k := range pr.Out.Header {
 			if _, ok := allowedHeaders[k]; !ok {
 				pr.Out.Header.Del(k)
 			}
+		}
+
+		// Preserve the connection-upgrade handshake for streaming
+		// subresources. The allowlist above strips the hop-by-hop
+		// Connection/Upgrade headers; without them httputil.ReverseProxy
+		// treats the request as non-upgrade and the API server rejects it
+		// with "Upgrade request required" (breaking kubectl
+		// exec/attach/port-forward/cp over both WebSocket and SPDY).
+		// Reconstruct them from the inbound request rather than allowlisting
+		// the client-supplied Connection header, so a client cannot name
+		// proxy-set headers (Authorization, Impersonate-*) as hop-by-hop and
+		// have them stripped before reaching the API server.
+		if upgrade := pr.In.Header.Get(UpgradeHeader); upgrade != "" {
+			pr.Out.Header.Set(ConnectionHeader, "Upgrade")
+			pr.Out.Header.Set(UpgradeHeader, upgrade)
 		}
 
 		peer, ok := pr.In.Context().Value(peerCtxKey{}).(api.Peer)
