@@ -8,6 +8,7 @@ require (
 	github.com/go-openapi/testify/v2 v2.5.1
 	github.com/netbirdio/netbird v0.72.3
 	golang.org/x/sync v0.21.0
+	resenje.org/singleflight v0.4.3
 )
 
 require (

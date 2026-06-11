@@ -19,11 +19,23 @@ import (
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
-type mockPeerLister struct {
-	peers map[string]api.Peer
-}
+type mockPeerLister struct{}
 
 func (p *mockPeerLister) List(ctx context.Context, opts ...netbird.PeersListOption) ([]api.Peer, error) {
+	peers := map[string]api.Peer{
+		"192.0.2.1": {
+			UserId: "foo",
+			Groups: []api.GroupMinimum{
+				{
+					Name: "group1",
+				},
+				{
+					Name: "group2",
+				},
+			},
+		},
+	}
+
 	ip := ""
 	for _, o := range opts {
 		k, v := o()
@@ -33,7 +45,7 @@ func (p *mockPeerLister) List(ctx context.Context, opts ...netbird.PeersListOpti
 		}
 	}
 	if ip != "" {
-		peer, ok := p.peers[ip]
+		peer, ok := peers[ip]
 		if !ok {
 			return nil, nil
 		}
@@ -45,21 +57,7 @@ func (p *mockPeerLister) List(ctx context.Context, opts ...netbird.PeersListOpti
 func TestProxyHandler(t *testing.T) {
 	t.Parallel()
 
-	peerLister := &mockPeerLister{
-		peers: map[string]api.Peer{
-			"192.0.2.1": {
-				UserId: "foo",
-				Groups: []api.GroupMinimum{
-					{
-						Name: "group1",
-					},
-					{
-						Name: "group2",
-					},
-				},
-			},
-		},
-	}
+	peerStore := NewPeerStore(&mockPeerLister{})
 
 	bearerToken := "foobar"
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
@@ -124,7 +122,7 @@ func TestProxyHandler(t *testing.T) {
 				req.Header.Add(k, v)
 			}
 			rec := httptest.NewRecorder()
-			handler := proxyHandler(peerLister, kubeAPIServerURL, certPool, bearerToken)
+			handler := proxyHandler(peerStore, kubeAPIServerURL, certPool, bearerToken)
 			handler(rec, req)
 			b, err := io.ReadAll(rec.Result().Body)
 			require.NoError(t, err)
@@ -138,18 +136,7 @@ func TestProxyHandler(t *testing.T) {
 func TestProxyHandlerPreservesUpgrade(t *testing.T) {
 	t.Parallel()
 
-	peerLister := &mockPeerLister{
-		peers: map[string]api.Peer{
-			"192.0.2.1": {
-				UserId: "foo",
-				Groups: []api.GroupMinimum{
-					{
-						Name: "group1",
-					},
-				},
-			},
-		},
-	}
+	peerStore := NewPeerStore(&mockPeerLister{})
 
 	bearerToken := "foobar"
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
@@ -180,7 +167,7 @@ func TestProxyHandlerPreservesUpgrade(t *testing.T) {
 	req.Header.Set(ImpersonateUserHeader, "system:admin")
 	rec := httptest.NewRecorder()
 
-	handler := proxyHandler(peerLister, kubeAPIServerURL, certPool, bearerToken)
+	handler := proxyHandler(peerStore, kubeAPIServerURL, certPool, bearerToken)
 	handler(rec, req)
 
 	b, err := io.ReadAll(rec.Result().Body)
