@@ -83,7 +83,8 @@ func run(ctx context.Context, kubeAPIServer, mgmtURL, apiKey, setupKey, instance
 		return embedClient.Stop(context.Background())
 	})
 
-	proxySrv, err := proxy.Server(embedClient, netbirdClient.Peers, kubeAPIServerURL)
+	peerStore := proxy.NewPeerStore(netbirdClient.Peers)
+	proxySrv, err := proxy.Server(embedClient, peerStore, kubeAPIServerURL)
 	if err != nil {
 		return err
 	}

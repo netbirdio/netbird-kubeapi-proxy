@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/netbirdio/netbird/client/embed"
-	netbird "github.com/netbirdio/netbird/shared/management/client/rest"
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
@@ -43,11 +42,7 @@ const (
 	SecWebsocketExtensionsHeader = "Sec-Websocket-Extensions"
 )
 
-type PeerLister interface {
-	List(ctx context.Context, opts ...netbird.PeersListOption) ([]api.Peer, error)
-}
-
-func Server(embedClient *embed.Client, peerLister PeerLister, kubeAPIServerURL *url.URL) (*http.Server, error) {
+func Server(embedClient *embed.Client, peerStore *PeerStore, kubeAPIServerURL *url.URL) (*http.Server, error) {
 	bearerToken, err := getBearerToken()
 	if err != nil {
 		return nil, err
@@ -56,7 +51,7 @@ func Server(embedClient *embed.Client, peerLister PeerLister, kubeAPIServerURL *
 	if err != nil {
 		return nil, err
 	}
-	handler := proxyHandler(peerLister, kubeAPIServerURL, certPool, bearerToken)
+	handler := proxyHandler(peerStore, kubeAPIServerURL, certPool, bearerToken)
 
 	stat, err := embedClient.Status()
 	if err != nil {
@@ -78,7 +73,7 @@ func Server(embedClient *embed.Client, peerLister PeerLister, kubeAPIServerURL *
 	return &srv, nil
 }
 
-func proxyHandler(peerLister PeerLister, kubeAPIServerURL *url.URL, certPool *x509.CertPool, bearerToken string) http.HandlerFunc {
+func proxyHandler(peerStore *PeerStore, kubeAPIServerURL *url.URL, certPool *x509.CertPool, bearerToken string) http.HandlerFunc {
 	type peerCtxKey struct{}
 
 	rewrite := func(pr *httputil.ProxyRequest) {
@@ -146,19 +141,18 @@ func proxyHandler(peerLister PeerLister, kubeAPIServerURL *url.URL, certPool *x5
 			rw.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		listCtx, listCancel := context.WithTimeout(req.Context(), 10*time.Second)
-		defer listCancel()
-		peers, err := peerLister.List(listCtx, netbird.PeerIPFilter(remoteIP))
+		getCtx, getCancel := context.WithTimeout(req.Context(), 10*time.Second)
+		defer getCancel()
+		peer, err := peerStore.Get(getCtx, remoteIP)
+		if errors.Is(err, ErrNotFound) {
+			rw.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 		if err != nil {
 			rw.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		if len(peers) != 1 {
-			rw.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-
-		peerCtx := context.WithValue(req.Context(), peerCtxKey{}, peers[0])
+		peerCtx := context.WithValue(req.Context(), peerCtxKey{}, peer)
 		proxy.ServeHTTP(rw, req.WithContext(peerCtx))
 	}
 }
