@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/netbirdio/netbird/client/cmd"
 	"github.com/netbirdio/netbird/client/embed"
 	netbird "github.com/netbirdio/netbird/shared/management/client/rest"
 
@@ -67,7 +68,7 @@ func run(ctx context.Context, kubeAPIServer, mgmtURL, apiKey, setupKey, instance
 		SetupKey:      setupKey,
 		DeviceName:    instanceName,
 		LogOutput:     io.Discard,
-		DNSLabels:     []string{clusterName + "." + "netbird-kubeapi-proxy"},
+		DNSLabels:     []string{clusterName + "." + cmd.KubernetesDNSSuffix},
 	}
 	embedClient, err := embed.New(opts)
 	if err != nil {

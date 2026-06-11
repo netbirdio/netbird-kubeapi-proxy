@@ -25,6 +25,17 @@ import (
 	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
+const (
+	AcceptHeader           = "Accept"
+	AcceptEncodingHeader   = "Accept-Encoding"
+	ContentLengthHeader    = "Content-Length"
+	ContentTypeHeader      = "Content-Type"
+	UserAgentHeader        = "User-Agent"
+	AuthorizationHeader    = "Authorization"
+	ImpersonateUserHeader  = "Impersonate-User"
+	ImpersonateGroupHeader = "Impersonate-Group"
+)
+
 type PeerLister interface {
 	List(ctx context.Context, opts ...netbird.PeersListOption) ([]api.Peer, error)
 }
@@ -38,15 +49,8 @@ func Server(embedClient *embed.Client, peerLister PeerLister, kubeAPIServerURL *
 	if err != nil {
 		return nil, err
 	}
+	handler := proxyHandler(peerLister, kubeAPIServerURL, certPool, bearerToken)
 
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{
-		RootCAs: certPool,
-	}
-	proxy := &httputil.ReverseProxy{
-		Transport: transport,
-		Rewrite:   rewriteHandler(peerLister, kubeAPIServerURL, bearerToken),
-	}
 	stat, err := embedClient.Status()
 	if err != nil {
 		return nil, err
@@ -60,21 +64,23 @@ func Server(embedClient *embed.Client, peerLister PeerLister, kubeAPIServerURL *
 			Certificates: []tls.Certificate{proxyCert},
 			MinVersion:   tls.VersionTLS12,
 		},
-		Handler:           proxy,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 	return &srv, nil
 }
 
-func rewriteHandler(peerLister PeerLister, kubeAPIServerURL *url.URL, bearerToken string) func(*httputil.ProxyRequest) {
-	return func(pr *httputil.ProxyRequest) {
+func proxyHandler(peerLister PeerLister, kubeAPIServerURL *url.URL, certPool *x509.CertPool, bearerToken string) http.HandlerFunc {
+	type peerCtxKey struct{}
+
+	rewrite := func(pr *httputil.ProxyRequest) {
 		allowedHeaders := map[string]any{
-			"Accept":          nil,
-			"Accept-Encoding": nil,
-			"Content-Length":  nil,
-			"Content-Type":    nil,
-			"User-Agent":      nil,
+			AcceptHeader:         nil,
+			AcceptEncodingHeader: nil,
+			ContentLengthHeader:  nil,
+			ContentTypeHeader:    nil,
+			UserAgentHeader:      nil,
 		}
 		for k := range pr.Out.Header {
 			if _, ok := allowedHeaders[k]; !ok {
@@ -82,27 +88,47 @@ func rewriteHandler(peerLister PeerLister, kubeAPIServerURL *url.URL, bearerToke
 			}
 		}
 
-		remoteIP, _, err := net.SplitHostPort(pr.In.RemoteAddr)
-		if err != nil {
+		peer, ok := pr.In.Context().Value(peerCtxKey{}).(api.Peer)
+		if !ok {
 			return
 		}
-		listCtx, listCancel := context.WithTimeout(pr.In.Context(), 10*time.Second)
+		pr.Out.Header.Set(ImpersonateUserHeader, peer.UserId)
+		for _, group := range peer.Groups {
+			pr.Out.Header.Add(ImpersonateGroupHeader, group.Name)
+		}
+		pr.Out.Header.Set(AuthorizationHeader, "Bearer "+bearerToken)
+		pr.SetURL(kubeAPIServerURL)
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{
+		RootCAs:    certPool,
+		MinVersion: tls.VersionTLS12,
+	}
+	proxy := &httputil.ReverseProxy{
+		Transport: transport,
+		Rewrite:   rewrite,
+	}
+
+	return func(rw http.ResponseWriter, req *http.Request) {
+		remoteIP, _, err := net.SplitHostPort(req.RemoteAddr)
+		if err != nil {
+			rw.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		listCtx, listCancel := context.WithTimeout(req.Context(), 10*time.Second)
 		defer listCancel()
 		peers, err := peerLister.List(listCtx, netbird.PeerIPFilter(remoteIP))
 		if err != nil {
+			rw.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		if len(peers) != 1 {
+			rw.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		peer := peers[0]
-		pr.Out.Header.Set("Impersonate-User", peer.UserId)
-		for _, group := range peer.Groups {
-			pr.Out.Header.Add("Impersonate-Group", group.Name)
-		}
 
-		pr.Out.Header.Set("Authorization", "Bearer "+bearerToken)
-		pr.SetURL(kubeAPIServerURL)
+		peerCtx := context.WithValue(req.Context(), peerCtxKey{}, peers[0])
+		proxy.ServeHTTP(rw, req.WithContext(peerCtx))
 	}
 }
 
