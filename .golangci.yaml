@@ -32,7 +32,7 @@ linters:
       no-extra-aliases: true
     goheader:
       template: |-
-        SPDX-License-Identifier: BSD-3-Clause
+        SPDX-License-Identifier: AGPL-3.0
   exclusions:
     generated: lax
     rules:
