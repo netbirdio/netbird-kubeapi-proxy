@@ -6,7 +6,7 @@ toolchain go1.26.4
 
 require (
 	github.com/go-openapi/testify/v2 v2.5.1
-	github.com/netbirdio/netbird v0.72.2
+	github.com/netbirdio/netbird v0.72.3
 	golang.org/x/sync v0.21.0
 )
 
@@ -43,7 +43,7 @@ require (
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
-	github.com/google/btree v1.1.2 // indirect
+	github.com/google/btree v1.1.3 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/gopacket v1.1.19 // indirect
 	github.com/google/nftables v0.3.0 // indirect
