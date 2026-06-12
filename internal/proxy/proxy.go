@@ -12,27 +12,27 @@ import (
 	"crypto/x509/pkix"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"os"
 	"time"
 
+	"k8s.io/apimachinery/pkg/util/proxy"
+
 	"github.com/netbirdio/netbird/client/embed"
-	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
 const (
-	AcceptHeader           = "Accept"
-	AcceptEncodingHeader   = "Accept-Encoding"
-	ContentLengthHeader    = "Content-Length"
-	ContentTypeHeader      = "Content-Type"
-	UserAgentHeader        = "User-Agent"
-	AuthorizationHeader    = "Authorization"
-	ImpersonateUserHeader  = "Impersonate-User"
-	ImpersonateGroupHeader = "Impersonate-Group"
+	AcceptHeader         = "Accept"
+	AcceptEncodingHeader = "Accept-Encoding"
+	ContentLengthHeader  = "Content-Length"
+	ContentTypeHeader    = "Content-Type"
+	UserAgentHeader      = "User-Agent"
+	AuthorizationHeader  = "Authorization"
+	RefererHeader        = "Referer"
 
 	ConnectionHeader             = "Connection"
 	UpgradeHeader                = "Upgrade"
@@ -40,6 +40,14 @@ const (
 	SecWebsocketVersionHeader    = "Sec-Websocket-Version"
 	SecWebsocketProtocolHeader   = "Sec-Websocket-Protocol"
 	SecWebsocketExtensionsHeader = "Sec-Websocket-Extensions"
+
+	KubectlCommandHeader    = "Kubectl-Command"
+	KubectlSessionHeader    = "Kubectl-Session"
+	KubectlFlagsHeader      = "Kubectl-Flags"
+	KubectlDeprecatedHeader = "Kubectl-Deprecated"
+	KubectlBuildHeader      = "Kubectl-Build"
+	ImpersonateUserHeader   = "Impersonate-User"
+	ImpersonateGroupHeader  = "Impersonate-Group"
 )
 
 func Server(embedClient *embed.Client, peerStore *PeerStore, kubeAPIServerURL *url.URL) (*http.Server, error) {
@@ -61,81 +69,80 @@ func Server(embedClient *embed.Client, peerStore *PeerStore, kubeAPIServerURL *u
 	if err != nil {
 		return nil, err
 	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(rw http.ResponseWriter, req *http.Request) {
+		rw.WriteHeader(http.StatusNotFound)
+	})
+	mux.Handle("/api/", handler)
+	mux.Handle("/apis/", handler)
+	mux.Handle("/version/", handler)
+	mux.Handle("/openapi/", handler)
+
 	srv := http.Server{
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{proxyCert},
 			MinVersion:   tls.VersionTLS12,
 		},
-		Handler:           handler,
+		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 	return &srv, nil
 }
 
-func proxyHandler(peerStore *PeerStore, kubeAPIServerURL *url.URL, certPool *x509.CertPool, bearerToken string) http.HandlerFunc {
-	type peerCtxKey struct{}
+type ErrorResponder struct{}
 
-	rewrite := func(pr *httputil.ProxyRequest) {
+func (e *ErrorResponder) Error(w http.ResponseWriter, req *http.Request, err error) {
+	slog.Default().Error("proxy request failed", "error", err)
+}
+
+func proxyHandler(peerStore *PeerStore, kubeAPIServerURL *url.URL, certPool *x509.CertPool, bearerToken string) http.HandlerFunc {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{
+		RootCAs:    certPool,
+		MinVersion: tls.VersionTLS12,
+	}
+
+	upgradeHandler := proxy.NewUpgradeAwareHandler(kubeAPIServerURL, transport, true, false, &ErrorResponder{})
+	upgradeHandler.UseRequestLocation = true
+
+	return func(rw http.ResponseWriter, req *http.Request) {
+		req = req.Clone(req.Context())
+
+		// Remove dummy token as it has to be set to disable password prompting client side.
+		if v := req.Header.Get("Authorization"); v == "Bearer none" {
+			req.Header.Del("Authorization")
+		}
+
 		allowedHeaders := map[string]any{
 			AcceptHeader:         nil,
 			AcceptEncodingHeader: nil,
 			ContentLengthHeader:  nil,
 			ContentTypeHeader:    nil,
 			UserAgentHeader:      nil,
-			// WebSocket negotiation headers for streaming subresources
-			// (kubectl exec/attach/port-forward/cp). These are not
-			// hop-by-hop, so httputil.ReverseProxy does not restore them;
-			// they must survive the allowlist for the upstream API server to
-			// complete the WebSocket handshake.
+			RefererHeader:        nil,
+
+			KubectlCommandHeader:    nil,
+			KubectlSessionHeader:    nil,
+			KubectlFlagsHeader:      nil,
+			KubectlDeprecatedHeader: nil,
+			KubectlBuildHeader:      nil,
+
+			ConnectionHeader:             nil,
+			UpgradeHeader:                nil,
 			SecWebsocketKeyHeader:        nil,
 			SecWebsocketVersionHeader:    nil,
 			SecWebsocketProtocolHeader:   nil,
 			SecWebsocketExtensionsHeader: nil,
 		}
-		for k := range pr.Out.Header {
+		for k, v := range req.Header {
 			if _, ok := allowedHeaders[k]; !ok {
-				pr.Out.Header.Del(k)
+				slog.Default().Warn("removing forbidden header", "key", k, "value", v)
+				req.Header.Del(k)
 			}
 		}
 
-		// Preserve the connection-upgrade handshake for streaming
-		// subresources. The allowlist above strips the hop-by-hop
-		// Connection/Upgrade headers; without them httputil.ReverseProxy
-		// treats the request as non-upgrade and the API server rejects it
-		// with "Upgrade request required" (breaking kubectl
-		// exec/attach/port-forward/cp over both WebSocket and SPDY).
-		// Reconstruct them from the inbound request rather than allowlisting
-		// the client-supplied Connection header, so a client cannot name
-		// proxy-set headers (Authorization, Impersonate-*) as hop-by-hop and
-		// have them stripped before reaching the API server.
-		if upgrade := pr.In.Header.Get(UpgradeHeader); upgrade != "" {
-			pr.Out.Header.Set(ConnectionHeader, "Upgrade")
-			pr.Out.Header.Set(UpgradeHeader, upgrade)
-		}
-
-		peer, ok := pr.In.Context().Value(peerCtxKey{}).(api.Peer)
-		if !ok {
-			return
-		}
-		pr.Out.Header.Set(ImpersonateUserHeader, peer.UserId)
-		for _, group := range peer.Groups {
-			pr.Out.Header.Add(ImpersonateGroupHeader, group.Name)
-		}
-		pr.Out.Header.Set(AuthorizationHeader, "Bearer "+bearerToken)
-		pr.SetURL(kubeAPIServerURL)
-	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{
-		RootCAs:    certPool,
-		MinVersion: tls.VersionTLS12,
-	}
-	proxy := &httputil.ReverseProxy{
-		Transport: transport,
-		Rewrite:   rewrite,
-	}
-
-	return func(rw http.ResponseWriter, req *http.Request) {
 		remoteIP, _, err := net.SplitHostPort(req.RemoteAddr)
 		if err != nil {
 			rw.WriteHeader(http.StatusBadRequest)
@@ -152,8 +159,13 @@ func proxyHandler(peerStore *PeerStore, kubeAPIServerURL *url.URL, certPool *x50
 			rw.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		peerCtx := context.WithValue(req.Context(), peerCtxKey{}, peer)
-		proxy.ServeHTTP(rw, req.WithContext(peerCtx))
+		req.Header.Set(ImpersonateUserHeader, peer.UserId)
+		for _, group := range peer.Groups {
+			req.Header.Add(ImpersonateGroupHeader, group.Name)
+		}
+		req.Header.Set(AuthorizationHeader, "Bearer "+bearerToken)
+
+		upgradeHandler.ServeHTTP(rw, req)
 	}
 }
 
