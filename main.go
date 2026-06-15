@@ -31,13 +31,15 @@ func main() {
 		kubeAPIServer string
 		instanceName  string
 		clusterName   string
+		probeAddr     string
 	)
 	flag.StringVar(&mgmtURL, "management-url", "https://api.netbird.io", "NetBird management URL")
 	flag.StringVar(&apiKey, "api-key", "", "NetBird API key")
 	flag.StringVar(&setupKey, "setup-key", "", "NetBird setup key")
-	flag.StringVar(&kubeAPIServer, "kubernetes-api-server", "https://kubernetes.default.svc.cluster.local", "Target Kubernetes API server URL")
+	flag.StringVar(&kubeAPIServer, "kubernetes-api-server", "https://kubernetes.default.svc.cluster.local/", "Target Kubernetes API server URL")
 	flag.StringVar(&instanceName, "instance-name", "", "Name of the instance")
 	flag.StringVar(&clusterName, "cluster-name", "", "Name of the cluster")
+	flag.StringVar(&probeAddr, "probe-addr", ":8081", "Address probe server listens to")
 	flag.Parse()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
@@ -46,14 +48,14 @@ func main() {
 	}))
 	slog.SetDefault(logger)
 
-	err := run(context.Background(), kubeAPIServer, mgmtURL, apiKey, setupKey, instanceName, clusterName)
+	err := run(context.Background(), kubeAPIServer, mgmtURL, apiKey, setupKey, instanceName, clusterName, probeAddr)
 	if err != nil {
 		slog.Default().Error("exit due to error", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, kubeAPIServer, mgmtURL, apiKey, setupKey, instanceName, clusterName string) error {
+func run(ctx context.Context, kubeAPIServer, mgmtURL, apiKey, setupKey, instanceName, clusterName, probeAddr string) error {
 	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGTERM)
 	defer cancel()
 	g, gCtx := errgroup.WithContext(ctx)
@@ -110,6 +112,26 @@ func run(ctx context.Context, kubeAPIServer, mgmtURL, apiKey, setupKey, instance
 	g.Go(func() error {
 		<-gCtx.Done()
 		return proxySrv.Shutdown(context.Background())
+	})
+
+	probeMux := http.NewServeMux()
+	probeMux.HandleFunc("/readyz", func(rw http.ResponseWriter, req *http.Request) {
+		rw.WriteHeader(http.StatusOK)
+	})
+	probeSrv := http.Server{
+		Addr:    probeAddr,
+		Handler: probeMux,
+	}
+	g.Go(func() error {
+		err := probeSrv.ListenAndServe()
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
+	})
+	g.Go(func() error {
+		<-gCtx.Done()
+		return probeSrv.Shutdown(context.Background())
 	})
 
 	slog.Default().Info("running API server proxy")
