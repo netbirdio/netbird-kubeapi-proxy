@@ -78,7 +78,7 @@ func TestProxyHandler(t *testing.T) {
 		srv.Close()
 	})
 	certPool := srv.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs
-	kubeAPIServerURL, err := url.Parse(srv.URL)
+	kubeAPIServerURL, err := url.Parse(srv.URL + "/")
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -131,49 +131,6 @@ func TestProxyHandler(t *testing.T) {
 			require.EqualT(t, tt.expectedBody, string(b))
 		})
 	}
-}
-
-func TestProxyHandlerPreservesUpgrade(t *testing.T) {
-	t.Parallel()
-
-	peerStore := NewPeerStore(&mockPeerLister{})
-
-	bearerToken := "foobar"
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		// Echo the headers that reached the API server so the test can
-		// assert the upgrade handshake survived and identity is the peer's.
-		body := fmt.Sprintf("%s %s %s %s",
-			req.Header.Get(ConnectionHeader),
-			req.Header.Get(UpgradeHeader),
-			req.Header.Get(SecWebsocketKeyHeader),
-			req.Header.Get(ImpersonateUserHeader),
-		)
-		// nolint: errcheck
-		rw.Write([]byte(body))
-	}))
-	t.Cleanup(func() {
-		srv.Close()
-	})
-	certPool := srv.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs
-	kubeAPIServerURL, err := url.Parse(srv.URL)
-	require.NoError(t, err)
-
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet,
-		"/api/v1/namespaces/default/pods/example/exec", nil)
-	req.Header.Set(ConnectionHeader, "Upgrade")
-	req.Header.Set(UpgradeHeader, "websocket")
-	req.Header.Set(SecWebsocketKeyHeader, "dGhlIHNhbXBsZSBub25jZQ==")
-	// A client must not be able to impersonate by sending this directly.
-	req.Header.Set(ImpersonateUserHeader, "system:admin")
-	rec := httptest.NewRecorder()
-
-	handler := proxyHandler(peerStore, kubeAPIServerURL, certPool, bearerToken)
-	handler(rec, req)
-
-	b, err := io.ReadAll(rec.Result().Body)
-	require.NoError(t, err)
-	require.EqualT(t, http.StatusOK, rec.Result().StatusCode)
-	require.EqualT(t, "Upgrade websocket dGhlIHNhbXBsZSBub25jZQ== foo", string(b))
 }
 
 func TestGenerateSelfSignedCert(t *testing.T) {

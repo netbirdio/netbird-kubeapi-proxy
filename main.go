@@ -7,9 +7,10 @@ import (
 	"errors"
 	"flag"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"os/signal"
 	"syscall"
 
@@ -39,9 +40,16 @@ func main() {
 	flag.StringVar(&clusterName, "cluster-name", "", "Name of the cluster")
 	flag.Parse()
 
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level:     slog.LevelInfo,
+		AddSource: true,
+	}))
+	slog.SetDefault(logger)
+
 	err := run(context.Background(), kubeAPIServer, mgmtURL, apiKey, setupKey, instanceName, clusterName)
 	if err != nil {
-		log.Fatal(err)
+		slog.Default().Error("exit due to error", "error", err)
+		os.Exit(1)
 	}
 }
 
@@ -104,6 +112,7 @@ func run(ctx context.Context, kubeAPIServer, mgmtURL, apiKey, setupKey, instance
 		return proxySrv.Shutdown(context.Background())
 	})
 
+	slog.Default().Info("running API server proxy")
 	err = g.Wait()
 	if err != nil {
 		return err
