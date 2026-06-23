@@ -6,7 +6,7 @@ toolchain go1.26.4
 
 require (
 	github.com/go-openapi/testify/v2 v2.5.1
-	github.com/netbirdio/netbird v0.72.4
+	github.com/netbirdio/netbird v0.73.2
 	golang.org/x/sync v0.21.0
 	k8s.io/apimachinery v0.36.2
 	resenje.org/singleflight v0.4.3
@@ -145,6 +145,7 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gvisor.dev/gvisor v0.0.0-20260219192049-0f2374377e89 // indirect
+	howett.net/plist v1.0.1 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260317180543-43fb72c5454a // indirect
 	k8s.io/streaming v0.36.2 // indirect
