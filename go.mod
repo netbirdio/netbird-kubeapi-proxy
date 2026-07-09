@@ -6,7 +6,7 @@ toolchain go1.26.4
 
 require (
 	github.com/go-openapi/testify/v2 v2.6.0
-	github.com/netbirdio/netbird v0.72.4
+	github.com/netbirdio/netbird v0.74.3
 	golang.org/x/sync v0.21.0
 	k8s.io/apimachinery v0.36.2
 	resenje.org/singleflight v0.4.3
@@ -104,8 +104,7 @@ require (
 	github.com/pkg/sftp v1.13.9 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
 	github.com/quic-go/quic-go v0.55.0 // indirect
-	github.com/shirou/gopsutil/v3 v3.24.4 // indirect
-	github.com/shoenig/go-m1cpu v0.2.1 // indirect
+	github.com/shirou/gopsutil/v4 v4.25.8 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966 // indirect
 	github.com/spf13/cobra v1.10.2 // indirect
@@ -145,6 +144,7 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gvisor.dev/gvisor v0.0.0-20260219192049-0f2374377e89 // indirect
+	howett.net/plist v1.0.1 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260317180543-43fb72c5454a // indirect
 	k8s.io/streaming v0.36.2 // indirect
