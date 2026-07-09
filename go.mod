@@ -5,7 +5,7 @@ go 1.26.0
 toolchain go1.26.4
 
 require (
-	github.com/go-openapi/testify/v2 v2.5.1
+	github.com/go-openapi/testify/v2 v2.6.0
 	github.com/netbirdio/netbird v0.72.4
 	golang.org/x/sync v0.21.0
 	k8s.io/apimachinery v0.36.2
