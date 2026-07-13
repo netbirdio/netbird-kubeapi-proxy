@@ -2,7 +2,7 @@ module github.com/netbirdio/netbird-kubeapi-proxy
 
 go 1.26.0
 
-toolchain go1.26.4
+toolchain go1.26.5
 
 require (
 	github.com/go-openapi/testify/v2 v2.6.0
