@@ -66,7 +66,12 @@ func TestProxyHandler(t *testing.T) {
 			rw.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		if req.URL.Path != "/version" {
+		// The API server serves /openapi/v2 and /openapi/v3 only at their
+		// exact paths, so any trailing-slash redirect by the proxy results
+		// in a 404 here, just like against a real API server.
+		switch req.URL.Path {
+		case "/version", "/openapi/v2", "/openapi/v3":
+		default:
 			rw.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -88,6 +93,7 @@ func TestProxyHandler(t *testing.T) {
 
 	tests := []struct {
 		name           string
+		path           string
 		remoteAddr     string
 		headers        map[string]string
 		expectedStatus int
@@ -95,12 +101,14 @@ func TestProxyHandler(t *testing.T) {
 	}{
 		{
 			name:           "valid peer",
+			path:           "/version",
 			headers:        nil,
 			expectedStatus: http.StatusOK,
 			expectedBody:   "[Bearer foobar] [foo] [group1 group2]",
 		},
 		{
 			name: "valid peer with bearer token",
+			path: "/version",
 			headers: map[string]string{
 				AuthorizationHeader: "Bearer testtest",
 			},
@@ -108,7 +116,22 @@ func TestProxyHandler(t *testing.T) {
 			expectedBody:   "[Bearer foobar] [foo] [group1 group2]",
 		},
 		{
+			name:           "openapi v2 is proxied without trailing-slash redirect",
+			path:           "/openapi/v2",
+			headers:        nil,
+			expectedStatus: http.StatusOK,
+			expectedBody:   "[Bearer foobar] [foo] [group1 group2]",
+		},
+		{
+			name:           "openapi v3 is proxied without trailing-slash redirect",
+			path:           "/openapi/v3",
+			headers:        nil,
+			expectedStatus: http.StatusOK,
+			expectedBody:   "[Bearer foobar] [foo] [group1 group2]",
+		},
+		{
 			name:           "no peer found",
+			path:           "/version",
 			remoteAddr:     "192.0.2.2:123",
 			headers:        nil,
 			expectedStatus: http.StatusUnauthorized,
@@ -119,7 +142,7 @@ func TestProxyHandler(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/version", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.path, nil)
 			if tt.remoteAddr != "" {
 				req.RemoteAddr = tt.remoteAddr
 			}
