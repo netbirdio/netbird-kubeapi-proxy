@@ -78,7 +78,12 @@ func TestProxyHandler(t *testing.T) {
 		srv.Close()
 	})
 	certPool := srv.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs
-	kubeAPIServerURL, err := url.Parse(srv.URL + "/")
+	// Intentionally parse the URL without a trailing slash so that the
+	// target has an empty path. This guards against a regression where an
+	// empty-path location caused UpgradeAwareHandler to 301-redirect every
+	// GET/HEAD to its trailing-slash form, breaking exact-path endpoints
+	// such as /openapi/v2 (see https://issue.k8s.io/4958).
+	kubeAPIServerURL, err := url.Parse(srv.URL)
 	require.NoError(t, err)
 
 	tests := []struct {
