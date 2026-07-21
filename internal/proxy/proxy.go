@@ -104,7 +104,17 @@ func proxyHandler(peerStore *PeerStore, kubeAPIServerURL *url.URL, certPool *x50
 		MinVersion: tls.VersionTLS12,
 	}
 
-	upgradeHandler := proxy.NewUpgradeAwareHandler(kubeAPIServerURL, transport, true, false, &ErrorResponder{})
+	// UpgradeAwareHandler 301-redirects any GET or HEAD request to its
+	// trailing-slash form when Location.Path is empty, as a workaround for
+	// https://issue.k8s.io/4958. This breaks exact-path API endpoints such
+	// as /openapi/v2, whose trailing-slash variants the API server does not
+	// serve. Ensure the location always has a non-empty path.
+	location := *kubeAPIServerURL
+	if location.Path == "" {
+		location.Path = "/"
+	}
+
+	upgradeHandler := proxy.NewUpgradeAwareHandler(&location, transport, true, false, &ErrorResponder{})
 	upgradeHandler.UseRequestLocation = true
 
 	return func(rw http.ResponseWriter, req *http.Request) {
