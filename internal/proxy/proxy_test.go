@@ -70,7 +70,7 @@ func TestProxyHandler(t *testing.T) {
 			rw.WriteHeader(http.StatusNotFound)
 			return
 		}
-		body := fmt.Sprintf("%s %s %s", req.Header[AuthorizationHeader], req.Header[ImpersonateUserHeader], req.Header[ImpersonateGroupHeader])
+		body := fmt.Sprintf("%s %s %s %s", req.Header[AuthorizationHeader], req.Header[ImpersonateUserHeader], req.Header[ImpersonateGroupHeader], req.Header[StreamProtocolVersionHeader])
 		// nolint: errcheck
 		rw.Write([]byte(body))
 	}))
@@ -92,7 +92,7 @@ func TestProxyHandler(t *testing.T) {
 			name:           "valid peer",
 			headers:        nil,
 			expectedStatus: http.StatusOK,
-			expectedBody:   "[Bearer foobar] [foo] [group1 group2]",
+			expectedBody:   "[Bearer foobar] [foo] [group1 group2] []",
 		},
 		{
 			name: "valid peer with bearer token",
@@ -100,7 +100,15 @@ func TestProxyHandler(t *testing.T) {
 				AuthorizationHeader: "Bearer testtest",
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody:   "[Bearer foobar] [foo] [group1 group2]",
+			expectedBody:   "[Bearer foobar] [foo] [group1 group2] []",
+		},
+		{
+			name: "valid peer with stream protocol version",
+			headers: map[string]string{
+				StreamProtocolVersionHeader: "v5.channel.k8s.io",
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   "[Bearer foobar] [foo] [group1 group2] [v5.channel.k8s.io]",
 		},
 		{
 			name:           "no peer found",
