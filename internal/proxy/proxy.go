@@ -70,25 +70,38 @@ func Server(embedClient *embed.Client, peerStore *PeerStore, kubeAPIServerURL *u
 		return nil, err
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(rw http.ResponseWriter, req *http.Request) {
-		rw.WriteHeader(http.StatusNotFound)
-	})
-	mux.Handle("/api/", handler)
-	mux.Handle("/apis/", handler)
-	mux.Handle("/version/", handler)
-	mux.Handle("/openapi/", handler)
-
 	srv := http.Server{
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{proxyCert},
 			MinVersion:   tls.VersionTLS12,
 		},
-		Handler:           mux,
+		Handler:           newMux(handler),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 	return &srv, nil
+}
+
+// proxiedPrefixes are the API server path prefixes exposed through the proxy.
+var proxiedPrefixes = []string{"/api", "/apis", "/version", "/openapi"}
+
+func newMux(handler http.Handler) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(rw http.ResponseWriter, req *http.Request) {
+		rw.WriteHeader(http.StatusNotFound)
+	})
+	for _, prefix := range proxiedPrefixes {
+		// Register the exact path as well as the subtree. With only the
+		// subtree pattern ("/api/") registered, ServeMux answers a request
+		// for the bare path ("/api") with a redirect to the trailing-slash
+		// form instead of dispatching it to the handler. Discovery clients
+		// request exactly /api, /apis and /version, and not all of them
+		// follow redirects (client-go does, kube-rs does not), so the
+		// redirect surfaces as a failed API discovery for those clients.
+		mux.Handle(prefix, handler)
+		mux.Handle(prefix+"/", handler)
+	}
+	return mux
 }
 
 type ErrorResponder struct{}

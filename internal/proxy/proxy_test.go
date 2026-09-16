@@ -144,3 +144,48 @@ func TestGenerateSelfSignedCert(t *testing.T) {
 	require.Len(t, x509Cert.DNSNames, 1)
 	require.EqualT(t, fqdn, x509Cert.DNSNames[0])
 }
+
+func TestNewMux(t *testing.T) {
+	t.Parallel()
+
+	mux := newMux(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		// nolint: errcheck
+		rw.Write([]byte("proxied " + req.URL.Path))
+	}))
+
+	tests := []struct {
+		path           string
+		expectedStatus int
+		expectedBody   string
+	}{
+		// Discovery endpoints are requested without a trailing slash and must
+		// be proxied as-is, never redirected to the trailing-slash form.
+		{path: "/api", expectedStatus: http.StatusOK, expectedBody: "proxied /api"},
+		{path: "/apis", expectedStatus: http.StatusOK, expectedBody: "proxied /apis"},
+		{path: "/version", expectedStatus: http.StatusOK, expectedBody: "proxied /version"},
+		{path: "/openapi/v3", expectedStatus: http.StatusOK, expectedBody: "proxied /openapi/v3"},
+		// Trailing-slash and nested paths keep working.
+		{path: "/api/", expectedStatus: http.StatusOK, expectedBody: "proxied /api/"},
+		{path: "/apis/apps/v1", expectedStatus: http.StatusOK, expectedBody: "proxied /apis/apps/v1"},
+		{path: "/api/v1/namespaces/default/pods", expectedStatus: http.StatusOK, expectedBody: "proxied /api/v1/namespaces/default/pods"},
+		// Everything outside the proxied prefixes is still refused.
+		{path: "/", expectedStatus: http.StatusNotFound, expectedBody: ""},
+		{path: "/healthz", expectedStatus: http.StatusNotFound, expectedBody: ""},
+		{path: "/apiserver", expectedStatus: http.StatusNotFound, expectedBody: ""},
+		{path: "/versions", expectedStatus: http.StatusNotFound, expectedBody: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.path, nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			b, err := io.ReadAll(rec.Result().Body)
+			require.NoError(t, err)
+
+			require.EqualT(t, tt.expectedStatus, rec.Result().StatusCode)
+			require.EqualT(t, tt.expectedBody, string(b))
+		})
+	}
+}
