@@ -40,6 +40,7 @@ const (
 	SecWebsocketVersionHeader    = "Sec-Websocket-Version"
 	SecWebsocketProtocolHeader   = "Sec-Websocket-Protocol"
 	SecWebsocketExtensionsHeader = "Sec-Websocket-Extensions"
+	StreamProtocolVersionHeader  = "X-Stream-Protocol-Version"
 
 	KubectlCommandHeader    = "Kubectl-Command"
 	KubectlSessionHeader    = "Kubectl-Session"
@@ -135,6 +136,7 @@ func proxyHandler(peerStore *PeerStore, kubeAPIServerURL *url.URL, certPool *x50
 			SecWebsocketVersionHeader:    nil,
 			SecWebsocketProtocolHeader:   nil,
 			SecWebsocketExtensionsHeader: nil,
+			StreamProtocolVersionHeader:  nil,
 		}
 		for k, v := range req.Header {
 			if _, ok := allowedHeaders[k]; !ok {
