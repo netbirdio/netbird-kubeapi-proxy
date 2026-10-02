@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/proxy"
 
 	"github.com/netbirdio/netbird/client/embed"
+	"github.com/netbirdio/netbird/shared/management/http/api"
 )
 
 const (
@@ -48,6 +49,8 @@ const (
 	KubectlBuildHeader      = "Kubectl-Build"
 	ImpersonateUserHeader   = "Impersonate-User"
 	ImpersonateGroupHeader  = "Impersonate-Group"
+
+	PeerUserPrefix = "netbird:peer:"
 )
 
 func Server(embedClient *embed.Client, peerStore *PeerStore, kubeAPIServerURL *url.URL) (*http.Server, error) {
@@ -159,7 +162,7 @@ func proxyHandler(peerStore *PeerStore, kubeAPIServerURL *url.URL, certPool *x50
 			rw.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		req.Header.Set(ImpersonateUserHeader, peer.UserId)
+		req.Header.Set(ImpersonateUserHeader, impersonateUser(peer))
 		for _, group := range peer.Groups {
 			req.Header.Add(ImpersonateGroupHeader, group.Name)
 		}
@@ -167,6 +170,13 @@ func proxyHandler(peerStore *PeerStore, kubeAPIServerURL *url.URL, certPool *x50
 
 		upgradeHandler.ServeHTTP(rw, req)
 	}
+}
+
+func impersonateUser(peer api.Peer) string {
+	if peer.UserId != "" {
+		return peer.UserId
+	}
+	return PeerUserPrefix + peer.Id
 }
 
 func getBearerToken() (string, error) {

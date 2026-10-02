@@ -34,6 +34,14 @@ func (p *mockPeerLister) List(ctx context.Context, opts ...netbird.PeersListOpti
 				},
 			},
 		},
+		"192.0.2.3": {
+			Id: "peer1",
+			Groups: []api.GroupMinimum{
+				{
+					Name: "group1",
+				},
+			},
+		},
 	}
 
 	ip := ""
@@ -101,6 +109,13 @@ func TestProxyHandler(t *testing.T) {
 			},
 			expectedStatus: http.StatusOK,
 			expectedBody:   "[Bearer foobar] [foo] [group1 group2]",
+		},
+		{
+			name:           "peer without user",
+			remoteAddr:     "192.0.2.3:123",
+			headers:        nil,
+			expectedStatus: http.StatusOK,
+			expectedBody:   "[Bearer foobar] [netbird:peer:peer1] [group1]",
 		},
 		{
 			name:           "no peer found",
