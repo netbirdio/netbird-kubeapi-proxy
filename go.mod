@@ -2,11 +2,11 @@ module github.com/netbirdio/netbird-kubeapi-proxy
 
 go 1.26.0
 
-toolchain go1.26.5
+toolchain go1.26.10
 
 require (
 	github.com/go-openapi/testify/v2 v2.8.0
-	github.com/netbirdio/netbird v0.81.4
+	github.com/netbirdio/netbird v0.81.5
 	golang.org/x/sync v0.23.0
 	k8s.io/apimachinery v0.37.1
 	resenje.org/singleflight v0.4.3
@@ -47,7 +47,7 @@ require (
 	github.com/ebitengine/purego v0.9.1 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
-	github.com/gliderlabs/ssh v0.3.8 // indirect
+	github.com/gliderlabs/ssh v0.3.9-0.20250127223818-909fa952d4e4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
@@ -166,10 +166,10 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 )
 
-replace github.com/dexidp/dex => github.com/netbirdio/dex v0.244.1-0.20260512110716-8d70ad8647c1
+replace github.com/dexidp/dex => github.com/netbirdio/dex v0.244.1-0.20260716205454-a163de3129e5
 
 replace github.com/cloudflare/circl => codeberg.org/cunicu/circl v0.0.0-20230801113412-fec58fc7b5f6
 
 replace github.com/pion/ice/v4 => github.com/netbirdio/ice/v4 v4.0.0-20250908184934-6202be846b51
 
-replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-20260628102922-2834bebf6c1a
+replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-20261008122457-d2b1ce9bfee9
