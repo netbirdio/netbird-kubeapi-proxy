@@ -204,9 +204,11 @@ func (e *environment) runCheck(ctx context.Context, namespace, name, script stri
 			RestartPolicy: corev1.RestartPolicyNever,
 			Containers: []corev1.Container{
 				{
-					Name:    "check",
-					Image:   e.clientImage,
-					Command: []string{"sh", "-c", fmt.Sprintf("for i in $(seq 40); do %s && exit 0; sleep 3; done; exit 1", script)},
+					Name:  "check",
+					Image: e.clientImage,
+					// Loaded into the nodes rather than pulled, like the proxy image.
+					ImagePullPolicy: corev1.PullIfNotPresent,
+					Command:         []string{"sh", "-c", fmt.Sprintf("for i in $(seq 40); do %s && exit 0; sleep 3; done; exit 1", script)},
 				},
 			},
 		},

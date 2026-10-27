@@ -109,6 +109,9 @@ func pointAtDeployment(deploy *appsv1.Deployment, image string) error {
 			continue
 		}
 		c.Image = image
+		// The image is loaded into the nodes, not pushed, and a :latest tag
+		// would otherwise default to Always and try a registry pull.
+		c.ImagePullPolicy = corev1.PullIfNotPresent
 		c.Args = append(c.Args, "--management-url="+managementURL)
 		return nil
 	}
