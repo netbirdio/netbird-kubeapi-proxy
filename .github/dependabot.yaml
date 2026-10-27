@@ -19,3 +19,19 @@ updates:
     open-pull-requests-limit: 15
     labels:
       - "changelog/dependencies"
+  # The netbird module is pinned to the revision whose e2e harness the suite
+  # builds; test/e2e/go.mod says when to move it.
+  - package-ecosystem: "gomod"
+    directories:
+      - "/test/e2e"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 15
+    labels:
+      - "changelog/ignore"
+    ignore:
+      - dependency-name: "github.com/netbirdio/netbird"
+    groups:
+      gomod-e2e:
+        patterns:
+          - "*"

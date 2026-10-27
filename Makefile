@@ -15,10 +15,17 @@ REPORTED_VERSION := $(NETBIRD_VERSION)+kubeapi-proxy.$(PROXY_VERSION)
 .PHONY: lint
 lint:
 	@golangci-lint run ./...
+	@cd test/e2e && golangci-lint run --build-tags e2e ./...
 
 .PHONY: test
 test-unit:
 	@go test ./... -race -coverprofile=coverage.txt
+
+# Needs only Docker and Go: the suite starts NetBird and a Kind cluster itself.
+# test/e2e/main_test.go describes the setup and the environment knobs.
+.PHONY: test-e2e
+test-e2e: build-image
+	@cd test/e2e && IMG_REF=$(IMG_REF) go test -tags e2e ./... -v -count 1 -timeout 30m
 
 .PHONY: build
 build: bin/linux-$(shell go env GOARCH)/netbird-kubeapi-proxy
