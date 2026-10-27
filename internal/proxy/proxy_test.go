@@ -34,6 +34,14 @@ func (p *mockPeerLister) List(ctx context.Context, opts ...netbird.PeersListOpti
 				},
 			},
 		},
+		"192.0.2.3": {
+			Id: "peer1",
+			Groups: []api.GroupMinimum{
+				{
+					Name: "group1",
+				},
+			},
+		},
 	}
 
 	ip := ""
@@ -66,11 +74,16 @@ func TestProxyHandler(t *testing.T) {
 			rw.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		if req.URL.Path != "/version" {
+		// The API server serves /openapi/v2 and /openapi/v3 only at their
+		// exact paths, so any trailing-slash redirect by the proxy results
+		// in a 404 here, just like against a real API server.
+		switch req.URL.Path {
+		case "/version", "/openapi/v2", "/openapi/v3":
+		default:
 			rw.WriteHeader(http.StatusNotFound)
 			return
 		}
-		body := fmt.Sprintf("%s %s %s", req.Header[AuthorizationHeader], req.Header[ImpersonateUserHeader], req.Header[ImpersonateGroupHeader])
+		body := fmt.Sprintf("%s %s %s %s", req.Header[AuthorizationHeader], req.Header[ImpersonateUserHeader], req.Header[ImpersonateGroupHeader], req.Header[StreamProtocolVersionHeader])
 		// nolint: errcheck
 		rw.Write([]byte(body))
 	}))
@@ -78,11 +91,17 @@ func TestProxyHandler(t *testing.T) {
 		srv.Close()
 	})
 	certPool := srv.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs
-	kubeAPIServerURL, err := url.Parse(srv.URL + "/")
+	// Intentionally parse the URL without a trailing slash so that the
+	// target has an empty path. This guards against a regression where an
+	// empty-path location caused UpgradeAwareHandler to 301-redirect every
+	// GET/HEAD to its trailing-slash form, breaking exact-path endpoints
+	// such as /openapi/v2 (see https://issue.k8s.io/4958).
+	kubeAPIServerURL, err := url.Parse(srv.URL)
 	require.NoError(t, err)
 
 	tests := []struct {
 		name           string
+		path           string
 		remoteAddr     string
 		headers        map[string]string
 		expectedStatus int
@@ -90,20 +109,54 @@ func TestProxyHandler(t *testing.T) {
 	}{
 		{
 			name:           "valid peer",
+			path:           "/version",
 			headers:        nil,
 			expectedStatus: http.StatusOK,
-			expectedBody:   "[Bearer foobar] [foo] [group1 group2]",
+			expectedBody:   "[Bearer foobar] [foo] [group1 group2] []",
 		},
 		{
 			name: "valid peer with bearer token",
+			path: "/version",
 			headers: map[string]string{
 				AuthorizationHeader: "Bearer testtest",
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody:   "[Bearer foobar] [foo] [group1 group2]",
+			expectedBody:   "[Bearer foobar] [foo] [group1 group2] []",
+		},
+		{
+			name: "valid peer with stream protocol version",
+			path: "/version",
+			headers: map[string]string{
+				StreamProtocolVersionHeader: "v5.channel.k8s.io",
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   "[Bearer foobar] [foo] [group1 group2] [v5.channel.k8s.io]",
+		},
+		{
+			name:           "openapi v2 is proxied without trailing-slash redirect",
+			path:           "/openapi/v2",
+			headers:        nil,
+			expectedStatus: http.StatusOK,
+			expectedBody:   "[Bearer foobar] [foo] [group1 group2] []",
+		},
+		{
+			name:           "openapi v3 is proxied without trailing-slash redirect",
+			path:           "/openapi/v3",
+			headers:        nil,
+			expectedStatus: http.StatusOK,
+			expectedBody:   "[Bearer foobar] [foo] [group1 group2] []",
+		},
+		{
+			name:           "peer without user",
+			path:           "/version",
+			remoteAddr:     "192.0.2.3:123",
+			headers:        nil,
+			expectedStatus: http.StatusOK,
+			expectedBody:   "[Bearer foobar] [netbird:peer:peer1] [group1] []",
 		},
 		{
 			name:           "no peer found",
+			path:           "/version",
 			remoteAddr:     "192.0.2.2:123",
 			headers:        nil,
 			expectedStatus: http.StatusUnauthorized,
@@ -114,7 +167,7 @@ func TestProxyHandler(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/version", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.path, nil)
 			if tt.remoteAddr != "" {
 				req.RemoteAddr = tt.remoteAddr
 			}
@@ -143,4 +196,49 @@ func TestGenerateSelfSignedCert(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, x509Cert.DNSNames, 1)
 	require.EqualT(t, fqdn, x509Cert.DNSNames[0])
+}
+
+func TestNewMux(t *testing.T) {
+	t.Parallel()
+
+	mux := newMux(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		// nolint: errcheck
+		rw.Write([]byte("proxied " + req.URL.Path))
+	}))
+
+	tests := []struct {
+		path           string
+		expectedStatus int
+		expectedBody   string
+	}{
+		// Discovery endpoints are requested without a trailing slash and must
+		// be proxied as-is, never redirected to the trailing-slash form.
+		{path: "/api", expectedStatus: http.StatusOK, expectedBody: "proxied /api"},
+		{path: "/apis", expectedStatus: http.StatusOK, expectedBody: "proxied /apis"},
+		{path: "/version", expectedStatus: http.StatusOK, expectedBody: "proxied /version"},
+		{path: "/openapi/v3", expectedStatus: http.StatusOK, expectedBody: "proxied /openapi/v3"},
+		// Trailing-slash and nested paths keep working.
+		{path: "/api/", expectedStatus: http.StatusOK, expectedBody: "proxied /api/"},
+		{path: "/apis/apps/v1", expectedStatus: http.StatusOK, expectedBody: "proxied /apis/apps/v1"},
+		{path: "/api/v1/namespaces/default/pods", expectedStatus: http.StatusOK, expectedBody: "proxied /api/v1/namespaces/default/pods"},
+		// Everything outside the proxied prefixes is still refused.
+		{path: "/", expectedStatus: http.StatusNotFound, expectedBody: ""},
+		{path: "/healthz", expectedStatus: http.StatusNotFound, expectedBody: ""},
+		{path: "/apiserver", expectedStatus: http.StatusNotFound, expectedBody: ""},
+		{path: "/versions", expectedStatus: http.StatusNotFound, expectedBody: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.path, nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			b, err := io.ReadAll(rec.Result().Body)
+			require.NoError(t, err)
+
+			require.EqualT(t, tt.expectedStatus, rec.Result().StatusCode)
+			require.EqualT(t, tt.expectedBody, string(b))
+		})
+	}
 }

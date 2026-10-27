@@ -3,6 +3,12 @@ IMG_REPOSITORY ?= netbirdio/netbird-kubeapi-proxy
 IMG_TAG ?= dev
 IMG_REF := $(IMG_REGISTRY)/$(IMG_REPOSITORY):$(IMG_TAG)
 
+VERSION ?= $(IMG_TAG)
+NETBIRD_VERSION := $(patsubst v%,%,$(shell go list -m -f '{{.Version}}' github.com/netbirdio/netbird))
+# The NetBird release must stay the semver core: Management gates features on it
+# with >= checks, and build metadata (after "+") is ignored by those comparisons.
+REPORTED_VERSION := $(NETBIRD_VERSION)+kubeapi-proxy.$(subst _,-,$(patsubst v%,%,$(VERSION)))
+
 .PHONY: lint
 lint:
 	@golangci-lint run ./...
@@ -14,8 +20,14 @@ test-unit:
 .PHONY: build
 build: bin/linux-$(shell go env GOARCH)/netbird-kubeapi-proxy
 
-bin/linux-%/netbird-kubeapi-proxy: $(shell find internal) main.go go.mod go.sum
-	@CGO_ENABLED=0 GOOS=linux GOARCH=$* go build -ldflags="-w -s" -trimpath -o $@ main.go
+# Always rebuilt: the stamped version is not a file prerequisite, so a leftover
+# binary would otherwise keep reporting an old version. The Go build cache keeps
+# this cheap.
+.PHONY: FORCE
+FORCE:
+
+bin/linux-%/netbird-kubeapi-proxy: FORCE
+	@CGO_ENABLED=0 GOOS=linux GOARCH=$* go build -ldflags="-w -s -X github.com/netbirdio/netbird/version.version=$(REPORTED_VERSION)" -trimpath -o $@ main.go
 
 .PHONY: build-image
 build-image: build
