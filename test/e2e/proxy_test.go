@@ -13,6 +13,7 @@ import (
 	"github.com/go-openapi/testify/v2/assert"
 	"github.com/go-openapi/testify/v2/require"
 	authenticationv1 "k8s.io/api/authentication/v1"
+	corev1 "k8s.io/api/core/v1"
 )
 
 const (
@@ -64,7 +65,9 @@ func TestGroupAuthorization(t *testing.T) {
 	resp, err := e.get(t.Context(), e.reader, kubeSystemPath)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.status, "the reader group may read namespaces")
-	assert.Contains(t, resp.body, `"name":"kube-system"`, "the reader should get the namespace back")
+	var ns corev1.Namespace
+	require.NoError(t, json.Unmarshal([]byte(resp.body), &ns), "decode namespace %q", resp.body)
+	assert.Equal(t, "kube-system", ns.Name, "the reader should get the namespace back")
 
 	resp, err = e.get(t.Context(), e.outsider, kubeSystemPath)
 	require.NoError(t, err)
