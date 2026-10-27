@@ -125,6 +125,7 @@ func TestProxyHandler(t *testing.T) {
 		},
 		{
 			name: "valid peer with stream protocol version",
+			path: "/version",
 			headers: map[string]string{
 				StreamProtocolVersionHeader: "v5.channel.k8s.io",
 			},
@@ -136,21 +137,22 @@ func TestProxyHandler(t *testing.T) {
 			path:           "/openapi/v2",
 			headers:        nil,
 			expectedStatus: http.StatusOK,
-			expectedBody:   "[Bearer foobar] [foo] [group1 group2]",
+			expectedBody:   "[Bearer foobar] [foo] [group1 group2] []",
 		},
 		{
 			name:           "openapi v3 is proxied without trailing-slash redirect",
 			path:           "/openapi/v3",
 			headers:        nil,
 			expectedStatus: http.StatusOK,
-			expectedBody:   "[Bearer foobar] [foo] [group1 group2]",
+			expectedBody:   "[Bearer foobar] [foo] [group1 group2] []",
 		},
 		{
 			name:           "peer without user",
+			path:           "/version",
 			remoteAddr:     "192.0.2.3:123",
 			headers:        nil,
 			expectedStatus: http.StatusOK,
-			expectedBody:   "[Bearer foobar] [netbird:peer:peer1] [group1]",
+			expectedBody:   "[Bearer foobar] [netbird:peer:peer1] [group1] []",
 		},
 		{
 			name:           "no peer found",
