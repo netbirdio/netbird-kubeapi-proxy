@@ -63,6 +63,9 @@ func (e *environment) installProxy(ctx context.Context, image, apiKey string) er
 		Type:       "reusable",
 		ExpiresIn:  int((24 * time.Hour).Seconds()),
 		AutoGroups: []string{},
+		// The proxy registers the cluster's DNS label, and management refuses
+		// a peer whose key does not allow one.
+		AllowExtraDnsLabels: new(true),
 	})
 	if err != nil {
 		return fmt.Errorf("create the proxy's setup key: %w", err)
