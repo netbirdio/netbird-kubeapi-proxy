@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -13,11 +14,15 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
 	"github.com/netbirdio/netbird/client/cmd"
 	"github.com/netbirdio/netbird/client/embed"
+	"github.com/netbirdio/netbird/shared/management/client"
 	netbird "github.com/netbirdio/netbird/shared/management/client/rest"
 
 	"github.com/netbirdio/netbird-kubeapi-proxy/internal/proxy"
@@ -84,20 +89,27 @@ func run(ctx context.Context, kubeAPIServer, mgmtURL, apiKey, setupKey, instance
 	}
 	err = embedClient.Start(ctx)
 	if err != nil {
+		// Start can fail after login has already registered the peer.
+		deregisterPeerBestEffort(embedClient)
 		return err
 	}
 	g.Go(func() error {
 		<-gCtx.Done()
+		deregisterPeerBestEffort(embedClient)
 		return embedClient.Stop(context.Background())
 	})
 
 	peerStore := proxy.NewPeerStore(netbirdClient.Peers)
 	proxySrv, err := proxy.Server(embedClient, peerStore, kubeAPIServerURL)
 	if err != nil {
+		cancel()
+		_ = g.Wait()
 		return err
 	}
 	listener, err := embedClient.ListenTCP(":443")
 	if err != nil {
+		cancel()
+		_ = g.Wait()
 		return err
 	}
 	g.Go(func() error {
@@ -146,4 +158,40 @@ func newManagementClient(mgmtURL, apiKey string) *netbird.Client {
 		netbird.WithBearerToken(apiKey),
 		netbird.WithUserAgent(version.UserAgent()),
 	)
+}
+
+// deregisterPeerBestEffort deregisters the peer within 5 seconds and only logs a
+// failure, since Management's ephemeral cleanup removes the peer later anyway.
+func deregisterPeerBestEffort(embedClient *embed.Client) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := deregisterPeer(ctx, embedClient); err != nil {
+		slog.Default().Warn("peer deregistration failed, falling back to management ephemeral cleanup", "error", err)
+		return
+	}
+	slog.Default().Info("deregistered peer from management")
+}
+
+// deregisterPeer deletes this peer from Management with the peer-authenticated
+// Logout RPC, so it disappears at once instead of lingering until Management's
+// ephemeral cleanup. It authenticates with the peer's own WireGuard key, so no
+// API key is needed.
+func deregisterPeer(ctx context.Context, embedClient *embed.Client) error {
+	cfg, err := embedClient.GetConfig()
+	if err != nil {
+		return fmt.Errorf("get config: %w", err)
+	}
+	if cfg.ManagementURL == nil {
+		return errors.New("no management URL in config")
+	}
+	key, err := wgtypes.ParseKey(cfg.PrivateKey)
+	if err != nil {
+		return fmt.Errorf("parse private key: %w", err)
+	}
+	mgmClient, err := client.NewClient(ctx, cfg.ManagementURL.Host, key, cfg.ManagementURL.Scheme == "https")
+	if err != nil {
+		return fmt.Errorf("connect to management: %w", err)
+	}
+	defer func() { _ = mgmClient.Close() }()
+	return mgmClient.Logout()
 }
