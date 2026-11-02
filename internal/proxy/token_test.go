@@ -69,6 +69,33 @@ func TestFileTokenSourceKeepsTheLastTokenWhenARereadFails(t *testing.T) {
 	}
 }
 
+func TestFileTokenSourceDoesNotRetryAFailedRereadWithinThePeriod(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "token")
+	writeToken(t, path, "first")
+	clock := &fakeClock{now: time.Now()}
+	tokens, err := newFileTokenSource(path, clock.Now)
+	require.NoError(t, err)
+
+	require.NoError(t, os.Remove(path))
+	clock.now = clock.now.Add(tokenRereadPeriod)
+	token, err := tokens.Token()
+	require.NoError(t, err)
+	require.EqualT(t, "first", token)
+
+	writeToken(t, path, "second")
+	clock.now = clock.now.Add(tokenRereadPeriod / 2)
+	token, err = tokens.Token()
+	require.NoError(t, err)
+	require.EqualT(t, "first", token)
+
+	clock.now = clock.now.Add(tokenRereadPeriod / 2)
+	token, err = tokens.Token()
+	require.NoError(t, err)
+	require.EqualT(t, "second", token)
+}
+
 func TestNewFileTokenSourceRefusesAMissingOrEmptyToken(t *testing.T) {
 	t.Parallel()
 

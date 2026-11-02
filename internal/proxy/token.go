@@ -23,7 +23,7 @@ type tokenSource interface {
 }
 
 // fileTokenSource reads a bearer token from a file at most once per tokenRereadPeriod.
-// When a re-read fails it keeps returning the last token it read.
+// When a re-read fails it keeps returning the last token it read until the next re-read.
 type fileTokenSource struct {
 	path string
 	now  func() time.Time
@@ -57,6 +57,7 @@ func (ts *fileTokenSource) Token() (string, error) {
 			return "", err
 		}
 		slog.Default().Warn("could not re-read the service account token, using the previous one", "path", ts.path, "error", err)
+		ts.readAt = now
 		return ts.token, nil
 	}
 	ts.token = token
