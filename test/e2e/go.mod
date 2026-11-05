@@ -7,10 +7,10 @@ toolchain go1.26.10
 require (
 	github.com/go-openapi/testify/v2 v2.8.0
 	github.com/netbirdio/netbird v0.81.2-0.20261026150333-2c68a84a976e
-	k8s.io/api v0.37.1
-	k8s.io/apimachinery v0.37.1
-	k8s.io/client-go v0.37.1
-	sigs.k8s.io/kind v0.32.0
+	k8s.io/api v0.37.2
+	k8s.io/apimachinery v0.37.2
+	k8s.io/client-go v0.37.2
+	sigs.k8s.io/kind v0.33.0
 )
 
 require (
