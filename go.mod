@@ -6,7 +6,7 @@ toolchain go1.26.10
 
 require (
 	github.com/go-openapi/testify/v2 v2.8.0
-	github.com/netbirdio/netbird v0.81.5
+	github.com/netbirdio/netbird v0.82.0
 	golang.org/x/sync v0.23.0
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
 	k8s.io/apimachinery v0.37.1
@@ -71,7 +71,7 @@ require (
 	github.com/jackpal/go-nat-pmp v1.0.2 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/kardianos/service v1.2.3-0.20240613133416-becf2eb62b83 // indirect
+	github.com/kardianos/service v1.3.0 // indirect
 	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/koron/go-ssdp v0.0.4 // indirect
@@ -93,11 +93,12 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/mxk/go-flowrate v0.0.0-20140419014527-cca7078d478f // indirect
 	github.com/netbirdio/go-nat v0.0.0-20260821095157-6b2c8c5c74e8 // indirect
+	github.com/netbirdio/ice/v4 v4.0.0-20261021152109-d0e5dfacb548 // indirect
+	github.com/netbirdio/wireguard-go v0.0.0-20261021152105-0de46b309cdb // indirect
 	github.com/oapi-codegen/runtime v1.1.2 // indirect
 	github.com/petermattis/goid v0.0.0-20250303134427-723919f7f203 // indirect
 	github.com/pion/dtls/v2 v2.2.10 // indirect
 	github.com/pion/dtls/v3 v3.0.9 // indirect
-	github.com/pion/ice/v4 v4.0.0-00010101000000-000000000000 // indirect
 	github.com/pion/logging v0.2.4 // indirect
 	github.com/pion/mdns/v2 v2.0.7 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
