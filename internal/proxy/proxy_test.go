@@ -10,8 +10,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/testify/v2/require"
 
@@ -68,6 +71,10 @@ func TestProxyHandler(t *testing.T) {
 	peerStore := NewPeerStore(&mockPeerLister{})
 
 	bearerToken := "foobar"
+	tokenPath := filepath.Join(t.TempDir(), "token")
+	require.NoError(t, os.WriteFile(tokenPath, []byte(bearerToken), 0o600))
+	tokens, err := newFileTokenSource(tokenPath, time.Now)
+	require.NoError(t, err)
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		token, _ := strings.CutPrefix(req.Header.Get("Authorization"), "Bearer ")
 		if token != bearerToken {
@@ -175,7 +182,7 @@ func TestProxyHandler(t *testing.T) {
 				req.Header.Add(k, v)
 			}
 			rec := httptest.NewRecorder()
-			handler := proxyHandler(peerStore, kubeAPIServerURL, certPool, bearerToken)
+			handler := proxyHandler(peerStore, kubeAPIServerURL, certPool, tokens)
 			handler(rec, req)
 			b, err := io.ReadAll(rec.Result().Body)
 			require.NoError(t, err)
@@ -184,6 +191,40 @@ func TestProxyHandler(t *testing.T) {
 			require.EqualT(t, tt.expectedBody, string(b))
 		})
 	}
+}
+
+func TestProxyHandlerSendsTheRotatedToken(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		// nolint: errcheck
+		rw.Write([]byte(req.Header.Get(AuthorizationHeader)))
+	}))
+	t.Cleanup(srv.Close)
+	certPool := srv.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs
+	kubeAPIServerURL, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+
+	tokenPath := filepath.Join(t.TempDir(), "token")
+	require.NoError(t, os.WriteFile(tokenPath, []byte("first"), 0o600))
+	clock := &fakeClock{now: time.Now()}
+	tokens, err := newFileTokenSource(tokenPath, clock.Now)
+	require.NoError(t, err)
+	handler := proxyHandler(NewPeerStore(&mockPeerLister{}), kubeAPIServerURL, certPool, tokens)
+
+	get := func() string {
+		rec := httptest.NewRecorder()
+		handler(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/version", nil))
+		b, err := io.ReadAll(rec.Result().Body)
+		require.NoError(t, err)
+		require.EqualT(t, http.StatusOK, rec.Result().StatusCode)
+		return string(b)
+	}
+
+	require.EqualT(t, "Bearer first", get())
+	require.NoError(t, os.WriteFile(tokenPath, []byte("second"), 0o600))
+	clock.now = clock.now.Add(tokenRereadPeriod)
+	require.EqualT(t, "Bearer second", get())
 }
 
 func TestGenerateSelfSignedCert(t *testing.T) {

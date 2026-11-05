@@ -55,7 +55,7 @@ const (
 )
 
 func Server(embedClient *embed.Client, peerStore *PeerStore, kubeAPIServerURL *url.URL) (*http.Server, error) {
-	bearerToken, err := getBearerToken()
+	tokens, err := newFileTokenSource(serviceAccountTokenPath, time.Now)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,7 @@ func Server(embedClient *embed.Client, peerStore *PeerStore, kubeAPIServerURL *u
 	if err != nil {
 		return nil, err
 	}
-	handler := proxyHandler(peerStore, kubeAPIServerURL, certPool, bearerToken)
+	handler := proxyHandler(peerStore, kubeAPIServerURL, certPool, tokens)
 
 	stat, err := embedClient.Status()
 	if err != nil {
@@ -114,7 +114,7 @@ func (e *ErrorResponder) Error(w http.ResponseWriter, req *http.Request, err err
 	slog.Default().Error("proxy request failed", "error", err)
 }
 
-func proxyHandler(peerStore *PeerStore, kubeAPIServerURL *url.URL, certPool *x509.CertPool, bearerToken string) http.HandlerFunc {
+func proxyHandler(peerStore *PeerStore, kubeAPIServerURL *url.URL, certPool *x509.CertPool, tokens tokenSource) http.HandlerFunc {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{
 		RootCAs:    certPool,
@@ -191,6 +191,12 @@ func proxyHandler(peerStore *PeerStore, kubeAPIServerURL *url.URL, certPool *x50
 		for _, group := range peer.Groups {
 			req.Header.Add(ImpersonateGroupHeader, group.Name)
 		}
+		bearerToken, err := tokens.Token()
+		if err != nil {
+			slog.Default().Error("could not read the service account token", "error", err)
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		req.Header.Set(AuthorizationHeader, "Bearer "+bearerToken)
 
 		upgradeHandler.ServeHTTP(rw, req)
@@ -202,17 +208,6 @@ func impersonateUser(peer api.Peer) string {
 		return peer.UserId
 	}
 	return PeerUserPrefix + peer.Id
-}
-
-func getBearerToken() (string, error) {
-	b, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/token")
-	if err != nil {
-		return "", err
-	}
-	if len(b) == 0 {
-		return "", errors.New("token cannot be empty")
-	}
-	return string(b), nil
 }
 
 func getCertPool() (*x509.CertPool, error) {
